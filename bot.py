@@ -106,141 +106,144 @@ def extract_price_from_text(text):
     
     return None
 
+# ============================================
+# ПАРСЕР ДЛЯ APPLE WORLD (aw-store.ru)
+# ============================================
 def parse_aw_store(url):
-    """Парсинг цены с Apple World (берёт акционную цену, не зачёркнутую)"""
+    """Парсинг цены с Apple World - берет 135 990 руб."""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(url, headers=headers, timeout=10)
+        html = response.text
+
+        # Ищем цену со скидкой по паттерну: она всегда перед " /шт"
+        price_match = re.search(r'(\d+[ ]?\d*)[\s]*руб\.?\s*/\s*шт', html)
+        if price_match:
+            price_str = price_match.group(1).replace(' ', '')
+            price = int(price_str)
+            logger.info(f"✅ Apple World: {price} руб. (акционная)")
+            return price
+
+        # Запасной вариант: ищем любую цену и берем минимальную
+        all_prices = re.findall(r'(\d+[ ]?\d*)[\s]*руб', html)
+        if all_prices:
+            numeric_prices = [int(p.replace(' ', '')) for p in all_prices]
+            # Исключаем старую цену 163843, если она есть
+            real_prices = [p for p in numeric_prices if p not in [163843, 163000, 164000]]
+            if real_prices:
+                min_price = min(real_prices)
+                logger.info(f"✅ Apple World: {min_price} руб. (минимальная из реальных)")
+                return min_price
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка Apple World: {e}")
+    return None
+
+
+# ============================================
+# ПАРСЕР ДЛЯ SWYPE (swype59.ru)
+# ============================================
+def parse_swype(url):
+    """Парсинг цены с Swype - берет 132 990 руб. (акционную)"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         response = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # СПОСОБ 1: Ищем цену со скидкой (которая рядом с "Экономия")
-        # Часто акционная цена находится рядом с блоком экономии
-        economy_block = soup.find(text=re.compile(r'Экономия'))
-        if economy_block:
-            # Ищем ближайший элемент с ценой (возможный родитель или сосед)
-            parent = economy_block.parent
-            if parent:
-                # Ищем span с ценой внутри того же родителя
-                price_span = parent.find('span', {'class': 'price'})
-                if price_span:
-                    price_text = price_span.text.strip()
-                    # Проверяем, что это не старая цена (не зачёркнута и не рядом с процентом скидки)
-                    if 'руб' in price_text and '%' not in price_text:
-                        price = int(''.join(filter(str.isdigit, price_text)))
-                        logger.info(f"Apple World акционная цена (через экономию): {price}")
-                        return price
-
-        # СПОСОБ 2: Ищем все цены и берём минимальную
-        all_prices_text = re.findall(r'(\d+[ ]?\d*)[\s]*руб', response.text)
-        if all_prices_text:
-            # Преобразуем в числа
-            numeric_prices = [int(p.replace(' ', '')) for p in all_prices_text]
-            if numeric_prices:
-                # Берём минимальную цену (обычно это акционная)
-                min_price = min(numeric_prices)
-                logger.info(f"Apple World минимальная цена из всех: {min_price}")
-                return min_price
-
-        # СПОСОБ 3: Ищем элемент с конкретным классом (если появится)
-        price_element = soup.find('span', {'class': 'price'})
-        if price_element:
-            price_text = price_element.text.strip()
-            # Проверяем, что это не зачёркнутая цена (обычно старая цена имеет доп. класс или стиль)
-            # Если рядом есть процент скидки или слово "экономия", то это акционная цена
-            parent_text = price_element.parent.text if price_element.parent else ''
-            if 'Экономия' in parent_text or '%' in parent_text:
-                price = int(''.join(filter(str.isdigit, price_text)))
-                logger.info(f"Apple World акционная цена (через parent): {price}")
+        # Находим span с классом price - там две цены: зачеркнутая и акционная
+        price_span = soup.find('span', {'class': 'price'})
+        if price_span:
+            # Получаем весь текст внутри span
+            price_text = price_span.get_text(strip=True)
+            # Ищем все цены в тексте
+            prices = re.findall(r'(\d+[ ]?\d*)[\s]*[₽]', price_text)
+            if len(prices) >= 2:
+                # Берем вторую цену (она акционная)
+                promo_price = int(prices[1].replace(' ', ''))
+                logger.info(f"✅ Swype: {promo_price} руб. (акционная, вторая цена)")
+                return promo_price
+            elif prices:
+                # Если только одна цена
+                price = int(prices[0].replace(' ', ''))
+                logger.info(f"✅ Swype: {price} руб.")
                 return price
 
-        # СПОСОБ 4: Последний шанс - просто первое число, похожее на цену (исключаем "163843")
-        fallback_match = re.search(r'(?<!163843\D)(\d{5,6})', response.text.replace(' ', ''))
-        if fallback_match:
-            price = int(fallback_match.group(1))
-            # Проверяем, что цена не равна старой (163843) и выглядит реалистично
-            if price not in [163843, 163000, 164000] and price > 100000:
-                logger.info(f"Apple World цена (fallback): {price}")
-                return price
-
-    except Exception as e:
-        logger.error(f"Ошибка парсинга Apple World: {e}")
-
-    logger.warning("Не удалось получить корректную цену с Apple World")
-    return None
-
-def parse_price_ipoint(url):
-    """Парсинг цены с iPoint Perm"""
-    try:
-        html = fetch_url_with_retry(url)
-        if not html:
-            return None
-        
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        # Пробуем разные селекторы
-        price_element = soup.find('span', {'class': 'price'})
-        if not price_element:
-            price_element = soup.find('div', {'class': 'product-price'})
-        if not price_element:
-            price_element = soup.find('meta', {'itemprop': 'price'})
-        
-        if price_element:
-            if price_element.name == 'meta':
-                content = price_element.get('content', '')
-                if content:
-                    return int(float(content))
-            else:
-                price = extract_price_from_text(price_element.text)
-                if price:
-                    logger.info(f"iPoint цена: {price}")
-                    return price
-        
-        # Ищем в JSON-LD
-        script = soup.find('script', {'type': 'application/ld+json'})
-        if script:
-            import json
-            try:
-                data = json.loads(script.string)
-                if isinstance(data, dict):
-                    if 'offers' in data:
-                        if 'price' in data['offers']:
-                            return int(float(data['offers']['price']))
-            except:
-                pass
-        
-    except Exception as e:
-        logger.error(f"Ошибка парсинга iPoint: {e}")
-    
-    return None
-
-def parse_price_swype(url):
-    """Парсинг цены с Swype"""
-    try:
-        html = fetch_url_with_retry(url)
-        if not html:
-            return None
-        
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        # Ищем акционную цену
-        price_element = soup.find('span', {'class': 'price'})
-        if price_element:
-            price = extract_price_from_text(price_element.text)
-            if price:
-                logger.info(f"Swype цена: {price}")
-                return price
-        
-        # Ищем в тексте
-        price = extract_price_from_text(html)
-        if price:
-            logger.info(f"Swype цена (из текста): {price}")
+        # Запасной вариант: ищем в тексте
+        price_match = re.search(r'(\d+[ ]?\d*)[\s]*[₽]', response.text)
+        if price_match:
+            price = int(price_match.group(1).replace(' ', ''))
+            logger.info(f"✅ Swype: {price} руб. (из текста)")
             return price
-        
+
     except Exception as e:
-        logger.error(f"Ошибка парсинга Swype: {e}")
-    
+        logger.error(f"❌ Ошибка Swype: {e}")
     return None
 
+
+# ============================================
+# ПАРСЕР ДЛЯ IPOINT (ipointperm.ru)
+# ============================================
+def parse_ipoint(url):
+    """Парсинг цены с iPoint - берет 137 990 руб."""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(url, headers=headers, timeout=10)
+        html = response.text
+
+        # Ищем цену с копейками (формат "137990.00 руб")
+        price_match = re.search(r'(\d+)\.00[\s]*руб', html)
+        if price_match:
+            price = int(price_match.group(1))
+            logger.info(f"✅ iPoint: {price} руб. (основная)")
+            return price
+
+        # Если не нашли, ищем просто число перед "руб"
+        price_match = re.search(r'(\d+[ ]?\d*)[\s]*руб', html)
+        if price_match:
+            price_str = price_match.group(1).replace(' ', '')
+            price = int(price_str)
+            logger.info(f"✅ iPoint: {price} руб. (из текста)")
+            return price
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка iPoint: {e}")
+    return None
+
+
+# ============================================
+# ОБНОВЛЕННАЯ ФУНКЦИЯ ПРОВЕРКИ ЦЕН
+# ============================================
+async def check_prices():
+    """Проверка цен во всех магазинах с новыми парсерами"""
+    results = []
+
+    # Параллельная проверка
+    tasks = [
+        asyncio.to_thread(parse_aw_store, SHOPS["aw_store"]["url"]),
+        asyncio.to_thread(parse_swype, SHOPS["swype"]["url"]),
+        asyncio.to_thread(parse_ipoint, SHOPS["ipoint"]["url"])
+    ]
+
+    prices = await asyncio.gather(*tasks)
+
+    # Собираем результаты
+    shop_keys = list(SHOPS.keys())
+    for i, price in enumerate(prices):
+        if price and price > 0:
+            shop_key = shop_keys[i]
+            results.append({
+                'shop': SHOPS[shop_key]["name"],
+                'price': price,
+                'url': SHOPS[shop_key]["url"],
+                'emoji': SHOPS[shop_key]["emoji"]
+            })
+            logger.info(f"📊 {SHOPS[shop_key]['name']}: {price} руб.")
+        else:
+            shop_name = SHOPS[shop_keys[i]]["name"]
+            logger.warning(f"⚠️ Не удалось получить цену для {shop_name}")
+
+    return results
+    
 async def check_prices():
     """Проверка цен во всех магазинах"""
     results = []
