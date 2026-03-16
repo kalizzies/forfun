@@ -142,11 +142,14 @@ def parse_aw_store(url):
     if not html:
         return None
 
-    price = smart_price_parser(html)
+    match = re.search(r'(\d[\d\s]*)\s*руб\.\s*/\s*шт', html)
 
-    logger.info(f"Apple World price {price}")
+    if match:
+        price = int(match.group(1).replace(" ", ""))
+        logger.info(f"Apple World price {price}")
+        return price
 
-    return price
+    return None
 
 
 def parse_swype(url):
@@ -156,7 +159,20 @@ def parse_swype(url):
     if not html:
         return None
 
-    price = smart_price_parser(html)
+    soup = BeautifulSoup(html, "html.parser")
+
+    price_block = soup.select_one(".price")
+
+    if not price_block:
+        return None
+
+    prices = re.findall(r'(\d[\d\s]*)\s*₽', price_block.text)
+
+    if not prices:
+        return None
+
+    # берём последнюю цену (она акционная)
+    price = int(prices[-1].replace(" ", ""))
 
     logger.info(f"Swype price {price}")
 
