@@ -8,8 +8,6 @@ import re
 from datetime import datetime
 import asyncio
 
-# Берем токен из переменных окружения (настройка в Railway)
-TOKEN = os.environ.get('BOT_TOKEN')
 
 TOKEN = "8772705807:AAGrh-vS3tI1Pjk1fa-ScBCvifcCfqfh_hU"
 
