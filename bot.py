@@ -1,35 +1,38 @@
 import os
 import logging
 import requests
-from bs4 import BeautifulSoup
 import re
 import asyncio
-import time
 from datetime import datetime
+from bs4 import BeautifulSoup
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 
-# ============================================
+# ======================================
 # LOGGING
-# ============================================
+# ======================================
 
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
 logger = logging.getLogger(__name__)
 
 
-# ============================================
+# ======================================
 # CONFIG
-# ============================================
+# ======================================
 
 TOKEN = os.getenv("BOT_TOKEN")
 
 PRODUCT_NAME = "iPhone 17 Pro Max 512GB Silver"
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0"
+}
 
 
 SHOPS = {
@@ -51,29 +54,9 @@ SHOPS = {
 }
 
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
-
-
-# ============================================
-# HELPERS
-# ============================================
-
-def extract_price(text):
-
-    if not text:
-        return None
-
-    text = text.replace(" ", "")
-
-    match = re.search(r"(\d{4,7})", text)
-
-    if match:
-        return int(match.group(1))
-
-    return None
-
+# ======================================
+# HTTP
+# ======================================
 
 def fetch(url):
 
@@ -90,9 +73,67 @@ def fetch(url):
     return None
 
 
-# ============================================
+# ======================================
+# SMART PRICE PARSER
+# ======================================
+
+def smart_price_parser(html):
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # удаляем зачёркнутые цены
+    for tag in soup.find_all(["del", "s"]):
+        tag.decompose()
+
+    selectors = [
+        ".price",
+        ".product-price",
+        ".current-price",
+        ".price-current",
+        ".price_value",
+        ".woocommerce-Price-amount"
+    ]
+
+    prices = []
+
+    for sel in selectors:
+
+        elements = soup.select(sel)
+
+        for el in elements:
+
+            text = el.get_text(" ", strip=True)
+
+            matches = re.findall(r"\d[\d\s]{3,7}", text)
+
+            for m in matches:
+                price = int(m.replace(" ", ""))
+                prices.append(price)
+
+    if prices:
+        return min(prices)
+
+    # fallback
+    matches = re.findall(r"\d[\d\s]{4,7}", html)
+
+    prices = []
+
+    for m in matches:
+
+        p = int(m.replace(" ", ""))
+
+        if 10000 < p < 500000:
+            prices.append(p)
+
+    if prices:
+        return min(prices)
+
+    return None
+
+
+# ======================================
 # PARSERS
-# ============================================
+# ======================================
 
 def parse_aw_store(url):
 
@@ -101,17 +142,11 @@ def parse_aw_store(url):
     if not html:
         return None
 
-    match = re.search(r"(\d+[ ]?\d*)\s*руб", html)
+    price = smart_price_parser(html)
 
-    if match:
+    logger.info(f"Apple World price {price}")
 
-        price = int(match.group(1).replace(" ", ""))
-
-        logger.info(f"Apple World price {price}")
-
-        return price
-
-    return None
+    return price
 
 
 def parse_swype(url):
@@ -121,23 +156,11 @@ def parse_swype(url):
     if not html:
         return None
 
-    soup = BeautifulSoup(html, "html.parser")
+    price = smart_price_parser(html)
 
-    price_block = soup.select_one(".price")
+    logger.info(f"Swype price {price}")
 
-    if price_block:
-
-        prices = re.findall(r"(\d+[ ]?\d*)", price_block.text)
-
-        if prices:
-
-            price = int(prices[-1].replace(" ", ""))
-
-            logger.info(f"Swype price {price}")
-
-            return price
-
-    return None
+    return price
 
 
 def parse_ipoint(url):
@@ -147,22 +170,16 @@ def parse_ipoint(url):
     if not html:
         return None
 
-    match = re.search(r"(\d+)\.00\s*руб", html)
+    price = smart_price_parser(html)
 
-    if match:
+    logger.info(f"iPoint price {price}")
 
-        price = int(match.group(1))
-
-        logger.info(f"iPoint price {price}")
-
-        return price
-
-    return None
+    return price
 
 
-# ============================================
+# ======================================
 # CHECK PRICES
-# ============================================
+# ======================================
 
 async def check_prices():
 
@@ -202,18 +219,18 @@ async def check_prices():
     return results
 
 
-# ============================================
+# ======================================
 # FORMAT
-# ============================================
+# ======================================
 
 def format_price(price):
 
     return f"{price:,}".replace(",", " ")
 
 
-# ============================================
+# ======================================
 # TELEGRAM
-# ============================================
+# ======================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -222,7 +239,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     await update.message.reply_text(
-        f"📱 Отслеживаю цены на\n\n{PRODUCT_NAME}",
+        f"📱 Отслеживаю цену:\n\n{PRODUCT_NAME}",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -247,9 +264,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = f"📱 {PRODUCT_NAME}\n\n"
 
-    text += f"🏆 Лучшая цена\n"
+    text += "🏆 Лучшая цена\n"
 
-    text += f"{best['shop']}\n"
+    text += f"{best['emoji']} {best['shop']}\n"
 
     text += f"💰 {format_price(best['price'])} ₽\n\n"
 
@@ -272,9 +289,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ============================================
+# ======================================
 # MAIN
-# ============================================
+# ======================================
 
 def main():
 
