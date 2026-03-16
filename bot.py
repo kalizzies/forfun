@@ -22,7 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Проверка токена при запуске
-TOKEN = os.environ.get('8772705807:AAGrh-vS3tI1Pjk1fa-ScBCvifcCfqfh_hU')
+TOKEN = os.environ.get('BOT_TOKEN')
 if not TOKEN:
     logger.error("КРИТИЧЕСКАЯ ОШИБКА: BOT_TOKEN не найден в переменных окружения!")
     logger.error("Добавьте BOT_TOKEN в Variables на Railway")
