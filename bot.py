@@ -1,178 +1,69 @@
-import os
-import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import asyncio
-
-TOKEN = os.environ.get('BOT_TOKEN')
-
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
-Product_name = "iPhone 17 Pro Max 512GB Silver Esim"
+import httpx
+from selectolax.parser import HTMLParser
+import re
 
 Shops = {
     "AppleWorld": {
         "name": "AppleWorld",
-        "url": "https://aw-store.ru/catalog/iphone/iphone_17_pro_max/87898/"
+        "url": "https://aw-store.ru/catalog/iphone/iphone_17_pro_max/87898/",
+        "selector": ".price_value"
     },
     "Swype": {
         "name": "Swype",
-        "url": "https://swype59.ru/product/iphone-17-pro-max-512-gb-silver"
+        "url": "https://swype59.ru/product/iphone-17-pro-max-512-gb-silver",
+        "selector": ".product__price"
     },
     "iPoint": {
         "name": "iPoint",
-        "url": "https://ipointperm.ru/product/apple-iphone-17-pro-max-512gb-belyy-silver-dual-sim"
+        "url": "https://ipointperm.ru/product/apple-iphone-17-pro-max-512gb-belyy-silver-dual-sim",
+        "selector": ".price"
     }
 }
 
-
-def create_driver():
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    return webdriver.Chrome(options=options)
+headers = {
+    "User-Agent": "Mozilla/5.0"
+}
 
 
-def parse_from_appleworld():
-    driver = create_driver()
-    driver.get(Shops["AppleWorld"]["url"])
+def extract_price(text: str):
+    numbers = re.findall(r'\d+', text)
+    if numbers:
+        return int("".join(numbers))
+    return None
 
+
+async def parse_shop(client, shop):
     try:
-        price = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, ".price_value"))
-        )
-        price_text = price.text
-        price_numbers = int(''.join(filter(str.isdigit, price_text)))
-        return price_numbers
-    except:
+        r = await client.get(shop["url"])
+        tree = HTMLParser(r.text)
+
+        node = tree.css_first(shop["selector"])
+
+        if not node:
+            return None
+
+        price = extract_price(node.text())
+        return {
+            "shop": shop["name"],
+            "price": price,
+            "url": shop["url"]
+        }
+
+    except Exception as e:
+        print("Ошибка:", shop["name"], e)
         return None
-    finally:
-        driver.quit()
-
-
-def parse_from_swype():
-    driver = create_driver()
-    driver.get(Shops["Swype"]["url"])
-
-    try:
-        price = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, ".product__price-old"))
-        )
-        price_text = price.text
-        price_numbers = int(''.join(filter(str.isdigit, price_text)))
-        return price_numbers
-    except:
-        return None
-    finally:
-        driver.quit()
-
-
-def parse_from_ipoint():
-    driver = create_driver()
-    driver.get(Shops["iPoint"]["url"])
-
-    try:
-        price = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, ".price"))
-        )
-        price_text = price.text
-        price_numbers = int(''.join(filter(str.isdigit, price_text)))
-        return price_numbers
-    except:
-        return None
-    finally:
-        driver.quit()
 
 
 async def check_prices():
-    results = []
+    async with httpx.AsyncClient(headers=headers, timeout=20) as client:
 
-    tasks = [
-        asyncio.to_thread(parse_from_appleworld),
-        asyncio.to_thread(parse_from_swype),
-        asyncio.to_thread(parse_from_ipoint)
-    ]
+        tasks = [
+            parse_shop(client, shop)
+            for shop in Shops.values()
+        ]
 
-    prices = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks)
 
-    shop_keys = list(Shops.keys())
-
-    for i, price in enumerate(prices):
-        if price:
-            results.append({
-                'shop': Shops[shop_keys[i]]["name"],
-                'price': price,
-                'url': Shops[shop_keys[i]]["url"],
-            })
+    results = [r for r in results if r]
 
     return results
-
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    keyboard = [
-        [InlineKeyboardButton("УЗНАТЬ ЦЕНУ", callback_data='price')],
-    ]
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        "Ты ебанулась, но ладно...",
-        reply_markup=reply_markup
-    )
-
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == 'price':
-
-        await query.edit_message_text("Проверяю цены...")
-
-        prices = await check_prices()
-
-        if prices:
-
-            min_price = min(prices, key=lambda x: x['price'])
-
-            message = f"Лучшая цена: {min_price['price']} руб.\n"
-            message += f"🔗 {min_price['url']}"
-
-            await query.edit_message_text(message)
-
-        else:
-            await query.edit_message_text("Ну ты и навайбкодила")
-
-
-def main():
-
-    logger.info("Запуск бота...")
-
-    if not TOKEN:
-        logger.error("Нет токена!")
-        return
-
-    application = Application.builder().token(TOKEN).build()
-
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_handler))
-
-    logger.info("Бот запущен!")
-
-    application.run_polling()
-
-
-if __name__ == '__main__':
-    main()
