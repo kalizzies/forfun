@@ -106,49 +106,66 @@ def extract_price_from_text(text):
     
     return None
 
-def parse_price_aw_store(url):
-    """Парсинг цены с Apple World"""
+def parse_aw_store(url):
+    """Парсинг цены с Apple World (берёт акционную цену, не зачёркнутую)"""
     try:
-        html = fetch_url_with_retry(url)
-        if not html:
-            return None
-        
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        # Поиск по разным селекторам
-        selectors = [
-            {'name': 'span', 'attrs': {'class': 'price'}},
-            {'name': 'div', 'attrs': {'class': 'product-price'}},
-            {'name': 'span', 'attrs': {'itemprop': 'price'}},
-            {'name': 'meta', 'attrs': {'property': 'product:price:amount'}},
-        ]
-        
-        for selector in selectors:
-            try:
-                element = soup.find(selector['name'], selector['attrs'])
-                if element:
-                    if selector['name'] == 'meta':
-                        content = element.get('content', '')
-                        if content:
-                            return int(float(content))
-                    else:
-                        price = extract_price_from_text(element.text)
-                        if price:
-                            logger.info(f"Apple World цена: {price}")
-                            return price
-            except Exception as e:
-                logger.debug(f"Ошибка с селектором {selector}: {e}")
-                continue
-        
-        # Если не нашли через селекторы, ищем в тексте
-        price = extract_price_from_text(html)
-        if price:
-            logger.info(f"Apple World цена (из текста): {price}")
-            return price
-            
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # СПОСОБ 1: Ищем цену со скидкой (которая рядом с "Экономия")
+        # Часто акционная цена находится рядом с блоком экономии
+        economy_block = soup.find(text=re.compile(r'Экономия'))
+        if economy_block:
+            # Ищем ближайший элемент с ценой (возможный родитель или сосед)
+            parent = economy_block.parent
+            if parent:
+                # Ищем span с ценой внутри того же родителя
+                price_span = parent.find('span', {'class': 'price'})
+                if price_span:
+                    price_text = price_span.text.strip()
+                    # Проверяем, что это не старая цена (не зачёркнута и не рядом с процентом скидки)
+                    if 'руб' in price_text and '%' not in price_text:
+                        price = int(''.join(filter(str.isdigit, price_text)))
+                        logger.info(f"Apple World акционная цена (через экономию): {price}")
+                        return price
+
+        # СПОСОБ 2: Ищем все цены и берём минимальную
+        all_prices_text = re.findall(r'(\d+[ ]?\d*)[\s]*руб', response.text)
+        if all_prices_text:
+            # Преобразуем в числа
+            numeric_prices = [int(p.replace(' ', '')) for p in all_prices_text]
+            if numeric_prices:
+                # Берём минимальную цену (обычно это акционная)
+                min_price = min(numeric_prices)
+                logger.info(f"Apple World минимальная цена из всех: {min_price}")
+                return min_price
+
+        # СПОСОБ 3: Ищем элемент с конкретным классом (если появится)
+        price_element = soup.find('span', {'class': 'price'})
+        if price_element:
+            price_text = price_element.text.strip()
+            # Проверяем, что это не зачёркнутая цена (обычно старая цена имеет доп. класс или стиль)
+            # Если рядом есть процент скидки или слово "экономия", то это акционная цена
+            parent_text = price_element.parent.text if price_element.parent else ''
+            if 'Экономия' in parent_text or '%' in parent_text:
+                price = int(''.join(filter(str.isdigit, price_text)))
+                logger.info(f"Apple World акционная цена (через parent): {price}")
+                return price
+
+        # СПОСОБ 4: Последний шанс - просто первое число, похожее на цену (исключаем "163843")
+        fallback_match = re.search(r'(?<!163843\D)(\d{5,6})', response.text.replace(' ', ''))
+        if fallback_match:
+            price = int(fallback_match.group(1))
+            # Проверяем, что цена не равна старой (163843) и выглядит реалистично
+            if price not in [163843, 163000, 164000] and price > 100000:
+                logger.info(f"Apple World цена (fallback): {price}")
+                return price
+
     except Exception as e:
         logger.error(f"Ошибка парсинга Apple World: {e}")
-    
+
+    logger.warning("Не удалось получить корректную цену с Apple World")
     return None
 
 def parse_price_ipoint(url):
