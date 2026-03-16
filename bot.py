@@ -9,9 +9,9 @@ import re
 from datetime import datetime
 import asyncio
 
-##TOKEN = os.environ.get('BOT_TOKEN')
+TOKEN = os.environ.get('BOT_TOKEN')
 
-TOKEN = "8772705807:AAGrh-vS3tI1Pjk1fa-ScBCvifcCfqfh_hU"
+
 
 #https://aw-store.ru/catalog/iphone/iphone_17_pro_max/87898/ AppleWorld
 #https://swype59.ru/product/iphone-17-pro-max-512-gb-silver Swype
