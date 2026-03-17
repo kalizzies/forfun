@@ -172,7 +172,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message = f"Лучшая цена: {min_price['price']} руб.\n"
             message += f"🔗 {min_price['url']}"
             message += "\n\nДругие цены:\n"
-            while price_info in prices:
+            for price_info in prices:
                 if price_info['price'] >= min_price['price']:
                     message += f"{price_info['shop']}: {price_info['price']} руб. 🔗 {price_info['url']}\n"
             await query.edit_message_text(message)
