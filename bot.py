@@ -129,7 +129,6 @@ async def check_prices():
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     keyboard = [
         [InlineKeyboardButton("УЗНАТЬ ЦЕНУ", callback_data='price')],
     ]
@@ -143,23 +142,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     query = update.callback_query
     await query.answer()
-
     if query.data == 'price':
-
         await query.edit_message_text("Проверяю цены...")
-
         prices = await check_prices()
-
         if prices:
-
             min_price = min(prices, key=lambda x: x['price'])
-
             message = f"Лучшая цена: {min_price['price']} руб.\n"
             message += f"🔗 {min_price['url']}"
-
+            message += "\n\nДругие цены:\n"
+            for price_info in prices:
+                if price_info['price'] != min_price['price']:
+                    message += f"{price_info['shop']}: {price_info['price']} руб. 🔗 {price_info['url']}\n"
             await query.edit_message_text(message)
 
         else:
