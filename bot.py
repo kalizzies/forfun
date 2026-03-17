@@ -21,21 +21,21 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-Product_name = "iPhone 17 Pro Max 512GB Silver Esim"
+Product_name = "iPhone 17 Pro Max 256GB Silver Esim"
 
 
 Shops = {
     "AppleWorld": {
         "name": "AppleWorld",
-        "url": "https://aw-store.ru/catalog/iphone/iphone_17_pro_max/87898/"
+        "url": "https://aw-store.ru/catalog/iphone/iphone_17_pro_max/87895/"
     },
     "Swype": {
         "name": "Swype",
-        "url": "https://swype59.ru/product/iphone-17-pro-max-512-gb-silver"
+        "url": "https://swype59.ru/product/iphone-17-pro-max-256-gb-silver"
     },
     "iPoint": {
         "name": "iPoint",
-        "url": "https://ipointperm.ru/product/apple-iphone-17-pro-max-512gb-belyy-silver-dual-sim"
+        "url": "https://ipointperm.ru/product/apple-iphone-17-pro-max-256gb-belyy-silver-dual-sim"
     },
     "Connect": {
         "name": "Connect",
@@ -150,7 +150,7 @@ async def check_prices():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("УЗНАТЬ ЦЕНУ", callback_data='price')],
+        [InlineKeyboardButton("УЗНАТЬ ЦЕНУ"+Product_name, callback_data='price')],
     ]
 
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -173,7 +173,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message += f"🔗 {min_price['url']}"
             message += "\n\nДругие цены:\n"
             for price_info in prices:
-                if price_info['price'] >= min_price['price']:
+                while price_info['price'] >= min_price['price']:
                     message += f"{price_info['shop']}: {price_info['price']} руб. 🔗 {price_info['url']}\n"
             await query.edit_message_text(message)
 
