@@ -36,6 +36,10 @@ Shops = {
     "iPoint": {
         "name": "iPoint",
         "url": "https://ipointperm.ru/product/apple-iphone-17-pro-max-512gb-belyy-silver-dual-sim"
+    },
+    "Connect": {
+        "name": "Connect",
+        "url": "https://www.connectperm.ru/product/iphone-17-pro-max"
     }
 }
 
@@ -95,6 +99,22 @@ def parse_from_ipoint():
     soup = BeautifulSoup(response.text, 'html.parser')
 
     price = soup.select_one('.price')
+
+    if price:
+        return extract_price(price.text)
+
+    return None
+
+
+def parse_from_connect():
+
+    url = Shops["Connect"]["url"]
+
+    response = requests.get(url, headers=headers, timeout=10)
+
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    price = soup.select_one('.product__price')
 
     if price:
         return extract_price(price.text)
